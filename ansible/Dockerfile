@@ -1,26 +1,69 @@
-FROM debian:11
+FROM alpine:3.16.4 as builder
 
-LABEL maintainer "Giovanni Moroni <asunix@gmail.com>"
+RUN set -eux \
+        && apk add --update --no-cache \
+                coreutils \
+                g++  \
+                gcc \
+                make  \
+                musl-dev \
+                openssl-dev \
+                python3-dev \
+                bc \
+                libffi-dev \
+                libxml2-dev \
+                libxslt-dev \
+                py3-pip \
+                python3 \
+                py3-yaml \
+        && python3 -c 'import _yaml' \
+	&& pip3 install --no-cache-dir --no-compile \
+		wheel \
+	&& pip3 install --no-cache-dir --no-compile \
+		Jinja2 \
+		MarkupSafe \
+		PyNaCl \
+		bcrypt \
+		cffi \
+		cryptography \
+		pycparser \
+	&& pip3 install --no-cache-dir --no-compile ansible \
+	&& find /usr/lib/ -name '__pycache__' -print0 | xargs -0 -n1 rm -rf \
+	&& find /usr/lib/ -name '*.pyc' -print0 | xargs -0 -n1 rm -rf \
+	&& pip3 install --no-cache-dir --no-compile \
+		junit-xml \
+		lxml \
+		paramiko \
+	&& find /usr/lib/ -name '__pycache__' -print0 | xargs -0 -n1 rm -rf \
+	&& find /usr/lib/ -name '*.pyc' -print0 | xargs -0 -n1 rm -rf \
+	&& pip3 uninstall --yes \
+		setuptools \
+		wheel \
+	&& find /usr/lib/ -name '__pycache__' -print0 | xargs -0 -n1 rm -rf \
+	&& find /usr/lib/ -name '*.pyc' -print0 | xargs -0 -n1 rm -rf
 
-ARG UNAME=testuser
-ARG UID=1000
-ARG GID=1000
+FROM alpine:3.16.4 as production
 
-RUN DEBIAN_FRONTEND=noninteractive apt-get update -y \
-    && DEBIAN_FRONTEND=noninteractive apt-get install --no-install-recommends -y python3-pip \
-    sshpass \
-    && groupadd -g $GID -o $UNAME \
-    && useradd -m -u $UID -g $GID -o -s /bin/bash $UNAME \
-    && rm -rf /var/lib/apt/lists/*
+LABEL "maintainer"="Giovanni Moroni <asunix@gmail.com>"
 
-RUN pip install pip --upgrade; \
-    pip install --upgrade virtualenv; \
-    pip install pywinrm[kerberos]; \
-    pip install pywinrm; \
-    pip install jmspath; \
-    pip install requests; \
-    python3 -m pip install ansible
+RUN set -eux \
+	&& apk add --no-cache \
+		libgcc \
+		py3-pip \
+		python3 \
+		yaml \
+		openssh-client \
+		sshpass \
+	&& find /usr/lib/ -name '__pycache__' -print0 | xargs -0 -n1 rm -rf \
+	&& find /usr/lib/ -name '*.pyc' -print0 | xargs -0 -n1 rm -rf \
+	&& ln -s /usr/bin/python3 /usr/bin/python
 
-USER $UNAME
+COPY --from=builder /usr/lib/python3.10/site-packages/ /usr/lib/python3.10/site-packages/
+COPY --from=builder /usr/bin/ansible* /usr/bin/
 
-WORKDIR /work
+RUN set -eux \
+	&& python3 -m compileall -j 0 /usr/lib/python3.10
+
+WORKDIR /data
+
+CMD ["/bin/sh"]
